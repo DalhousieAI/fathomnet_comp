@@ -450,8 +450,8 @@ def train(
 
     # Save predictions on test set
     if test_loader is not None and label_map is not None:
-        predictions = predict(model, test_loader, label_map, device)
-        save_predictions_to_csv(predictions, os.path.join(model_path, "predictions.csv"))
+        image_names, predictions = predict(model, test_loader, label_map, device)
+        save_predictions_to_csv(image_names, predictions, os.path.join(model_path, "predictions.csv"))
 
         print(f"Predictions saved to {os.path.join(model_path, 'predictions.csv')}")
 
@@ -522,25 +522,26 @@ def predict(model, test_loader, label_map, device):
 
     model.eval()
     predictions = []
+    image_names = []
     with torch.no_grad():
-        for images in test_loader:
+        for images, names in test_loader:
+            image_names.extend(names)
             images = images.to(device)
             outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)
             predictions.extend(predicted.cpu().numpy())
-    
-    # Convert predictions to labels using the label map
+
     predicted_labels = [
         invert_label_map[pred] for pred in predictions if pred in invert_label_map
     ]
     
-    return predicted_labels
+    return image_names, predicted_labels
 
-def save_predictions_to_csv(predictions, output_path):
+def save_predictions_to_csv(image_names, predictions, output_path):
     # Two columns: "annotation_id" and "concept_name"
     # Annotation IDs are the indices of the predictions
     df = pd.DataFrame({
-        "annotation_id": range(len(predictions)),
+        "annoation_id": image_names,
         "concept_name": predictions,
     })
     df.to_csv(output_path, index=False)
