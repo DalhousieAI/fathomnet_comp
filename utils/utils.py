@@ -541,7 +541,7 @@ def save_predictions_to_csv(image_names, predictions, output_path):
     # Two columns: "annotation_id" and "concept_name"
     # Annotation IDs are the indices of the predictions
     df = pd.DataFrame({
-        "annoation_id": image_names,
+        "annotation_id": image_names,
         "concept_name": predictions,
     })
     df.to_csv(output_path, index=False)
