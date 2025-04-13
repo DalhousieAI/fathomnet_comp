@@ -37,7 +37,8 @@ class FathomNetDataset(torch.utils.data.Dataset):
             sample = self.transform(sample)
 
         if self.is_test:
-            return sample
+            annotation_id = path.split("_")[-1].split(".")[0]
+            return sample, annotation_id
         
         return sample, row[self.label_col]
     

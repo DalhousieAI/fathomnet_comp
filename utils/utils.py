@@ -1,5 +1,11 @@
-from utils.models import FathomNetModel, OneHotClassifier
+# MCLoss and get_constr_out function
+# from Constrained Feed-Forward Neural Network for HML
+# (Coherent Hierarchical Multi-Label Classification Networks - GPL-3.0 License)
+# https://github.com/EGiunchiglia/C-HMCNN
 
+from utils.models import FathomNetModel, OneHotClassifier, ConstrainedFFNNModel
+
+import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -27,6 +33,7 @@ _BACKBONES = {
     "vit_b_32": models.vit_b_32,
     "vit_l_16": models.vit_l_16,
     "vit_l_32": models.vit_l_32,
+    "vit_h_14": models.vit_h_14,
 }
 
 _VIT_NUM_FEATURES = {
@@ -34,6 +41,7 @@ _VIT_NUM_FEATURES = {
     "vit_b_32": 768,
     "vit_l_16": 1024,
     "vit_l_32": 1024,
+    "vit_h_14": 1280,
 }
 
 _OPTIMIZERS = {
@@ -42,6 +50,13 @@ _OPTIMIZERS = {
     "adamw": torch.optim.AdamW,
 }
 
+def read_json(file_path):
+    # Expects a python object in the json file
+    # e.g. {"key": "value"}
+    with open(file_path, "r") as f:
+        data = json.load(f)
+    return data
+    
 def set_seed(seed, cudnn_deterministic=False):
     """
     Set the random seed for reproducibility.
@@ -168,7 +183,7 @@ def convert_to_rgb(image):
         return image[:3, :, :]  # Keep only the first 3 channels (R, G, B)
     return image
 
-def get_augs(colour_jitter: bool, input_size=224, use_benthicnet=True):
+def get_augs(colour_jitter: bool, input_size=518, use_benthicnet=True):
     imagenet_mean_std = transforms.Normalize(
         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
     )
@@ -321,7 +336,7 @@ def build_model(
         classifier_type, 
         encoder_path=None, 
         requires_grad=True,
-        output_dim=79
+        output_dim=79,
         ):
     enc = _BACKBONES[encoder_arch](weights="DEFAULT")
     if encoder_path:
@@ -338,6 +353,13 @@ def build_model(
 
     if classifier_type == "one_hot":
         classifier = OneHotClassifier(features_dim, output_dim)
+    elif classifier_type == "hml":
+        classifier = ConstrainedFFNNModel(
+            input_dim=features_dim, 
+            hidden_dim=[features_dim], 
+            output_dim=output_dim, 
+            dropout=0.7,
+        )
     else:
         raise ValueError(f"Unknown classifier type: {classifier_type}")
     
@@ -369,6 +391,29 @@ def process_scheduler(
     
     return scheduler
 
+def get_constr_out(x, R):
+    # Given the output of the neural network 
+    # x returns the output of MCM given the hierarchy constraint 
+    # expressed in the matrix R
+    
+    c_out = x.double()
+    c_out = c_out.unsqueeze(1)
+    c_out = c_out.expand(len(x), R.shape[1], R.shape[1])
+    R_batch = R.expand(len(x), R.shape[1], R.shape[1])
+    final_out, _ = torch.max(R_batch * c_out.double(), dim=2)
+    return final_out
+
+def mcloss(logits, targets, R, criterion):
+    # MCLoss - why doubles?
+    constr_output = get_constr_out(logits, R)
+    output = targets * logits.double()
+    output = get_constr_out(output, R)
+    output = (1 - targets) * constr_output.double() + targets * output
+    # Print the indices where targets are 1
+    loss = criterion(output, targets)
+
+    return loss
+
 def train(
         model, 
         train_loader,
@@ -379,24 +424,38 @@ def train(
         device,
         train_kwargs,
         ):
+    
     optimizer = _OPTIMIZERS[train_kwargs.optimizer_name](
         model.parameters(), 
         lr=train_kwargs.lr,
         weight_decay=train_kwargs.weight_decay,
     )
 
+    one_hot_cond = train_kwargs.classifier_type == "one_hot"
+
     scheduler = process_scheduler(optimizer, train_kwargs)
 
     model.train()
 
     training_losses = []
-    training_accuracies = []
+    if one_hot_cond:
+        training_accuracies = []
+    else:
+        training_accuracies = None
+        assert train_kwargs.hierarchy_dict is not None, \
+            "Hierarchy dict is required for HML classifier."
+
     if val_loader is not None:
         validation_losses = []
-        validation_accuracies = []
+        if one_hot_cond:
+            validation_accuracies = []
+        else:
+            validation_accuracies = None
     else:
         validation_losses = None
         validation_accuracies = None
+    if not one_hot_cond:
+        R = train_kwargs.descendent_matrix.to(device)
 
     for epoch in range(train_kwargs.max_epochs):
         epoch_loss = 0.0
@@ -404,33 +463,60 @@ def train(
         total = 0
         for images, labels in train_loader:
             images, labels = images.to(device), labels.to(device)
+
             optimizer.zero_grad()
+            
             outputs = model(images)
-            loss = criterion(outputs, labels)
+
+            if one_hot_cond:
+                loss = criterion(outputs, labels)
+            else:
+                # Turn labels into doubles
+                labels = labels.double()
+                loss = mcloss(
+                    logits=outputs,
+                    targets=labels,
+                    R=R,
+                    criterion=criterion,
+                )
             loss.backward()
             optimizer.step()
 
             epoch_loss += loss.item() * images.size(0)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            
+            if one_hot_cond:
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
 
         epoch_loss = epoch_loss / len(train_loader.dataset)
-        accuracy = 100 * correct / total
-
-        print(f"Epoch [{epoch+1}/{train_kwargs.max_epochs}], " + \
-              f"Loss: {epoch_loss:.4f}, Accuracy: {accuracy:.2f}%")
         
+        if one_hot_cond:
+            accuracy = 100 * correct / total
+            print(f"Epoch [{epoch+1}/{train_kwargs.max_epochs}], " + \
+                f"Loss: {epoch_loss:.4f}, Accuracy: {accuracy:.2f}%")
+            training_accuracies.append(accuracy)
+        else:
+            print(f"Epoch [{epoch+1}/{train_kwargs.max_epochs}], " + \
+                f"Loss: {epoch_loss:.4f}")
         training_losses.append(epoch_loss)
-        training_accuracies.append(accuracy)
         
         if val_loader is not None:
-            val_loss, val_accuracy = test(model, val_loader, criterion, device)
-            print(f"Validation Loss: {val_loss:.4f}, " + \
-                f"Validation Accuracy: {val_accuracy:.2f}%")
-        
+            val_loss, val_accuracy = test(
+                model=model,
+                val_loader=val_loader,
+                criterion=criterion,
+                device=device,
+                one_hot_cond=one_hot_cond,
+                R=R,
+            )
+            if one_hot_cond:
+                print(f"Validation Loss: {val_loss:.4f}, " + \
+                    f"Validation Accuracy: {val_accuracy:.2f}%")
+                validation_accuracies.append(val_accuracy)
+            else:
+                print(f"Validation Loss: {val_loss:.4f}")
             validation_losses.append(val_loss)
-            validation_accuracies.append(val_accuracy)
 
         # Update the scheduler (after each epoch)
         scheduler.step()
@@ -439,9 +525,13 @@ def train(
     if train_kwargs.save_model:
         # Create folder for model if it doesn't exist,
         # based on model training settings
+        if train_kwargs.enc_path is not None:
+            enc_path = train_kwargs.enc_path.split("/")[-1].split(".")[0]
+        else:
+            enc_path = "None"
         model_path = f"./models/{train_kwargs.enc_arch}_pre-" + \
-            f"{train_kwargs.enc_path}_cls-{train_kwargs.classifier_type}_" + \
-            f"seed-{train_kwargs.seed}"
+            f"{enc_path}_cls-{train_kwargs.classifier_type}_" + \
+            f"seed-{train_kwargs.seed}_e-{train_kwargs.max_epochs}"
 
         if not os.path.exists(model_path):
             os.makedirs(model_path)
@@ -450,8 +540,23 @@ def train(
 
     # Save predictions on test set
     if test_loader is not None and label_map is not None:
-        predictions = predict(model, test_loader, label_map, device)
-        save_predictions_to_csv(predictions, os.path.join(model_path, "predictions.csv"))
+        if one_hot_cond:
+            annotation_ids, predictions = predict(model, test_loader, label_map, device)
+        else:
+            annotation_ids, predictions = predict_hml(
+                model, 
+                test_loader, 
+                label_map,
+                train_kwargs.hierarchy_dict,
+                R,
+                device,
+                mode="simple",
+            )
+        save_predictions_to_csv(
+            annotation_ids, 
+            predictions, 
+            os.path.join(model_path, "predictions.csv")
+            )
 
         print(f"Predictions saved to {os.path.join(model_path, 'predictions.csv')}")
 
@@ -487,46 +592,64 @@ def plot_training(
     plt.legend()
 
     # Plot training accuracy
-    plt.subplot(1, 2, 2)
-    plt.plot(training_accuracies, label="Training Accuracy", color="blue")
-    if validation_accuracies is not None:
-        plt.plot(validation_accuracies, label="Validation Accuracy", color="orange")
-    plt.xlabel("Epochs")
-    plt.ylabel("Accuracy (%)")
-    plt.title("Training and Validation Accuracy")
-    plt.legend()
+    if training_accuracies is not None:
+        plt.subplot(1, 2, 2)
+        plt.plot(training_accuracies, label="Training Accuracy", color="blue")
+        if validation_accuracies is not None:
+            plt.plot(validation_accuracies, label="Validation Accuracy", color="orange")
+        plt.xlabel("Epochs")
+        plt.ylabel("Accuracy (%)")
+        plt.title("Training and Validation Accuracy")
+        plt.legend()
 
     if save_path:
         plt.savefig(save_path)
 
-def test(model, val_loader, criterion, device):
+def test(model, val_loader, criterion, device, one_hot_cond=False, R=None):
     model.eval()
     epoch_loss = 0.0
-    correct = 0
-    total = 0
+    if one_hot_cond:
+        correct = 0
+        total = 0
     with torch.no_grad():
         for images, labels in val_loader:
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            if not one_hot_cond:
+                assert R is not None, "R matrix is required for HML classifier."
+                loss = mcloss(
+                    logits=outputs,
+                    targets=labels.double(),
+                    R=R,
+                    criterion=criterion,
+                )
             epoch_loss += loss.item() * images.size(0)
             _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+
+            if one_hot_cond:
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+                
     epoch_loss = epoch_loss / len(val_loader.dataset)
-    accuracy = 100 * correct / total
-    return epoch_loss, accuracy
+
+    if one_hot_cond:
+        accuracy = 100 * correct / total
+        return epoch_loss, accuracy
+    else:
+        return epoch_loss, None
 
 def predict(model, test_loader, label_map, device):
     invert_label_map = {v: k for k, v in label_map.items()}
 
     model.eval()
+    annotation_ids = []
     predictions = []
     with torch.no_grad():
-        for images in test_loader:
+        for images, annotation_id in test_loader:
             images = images.to(device)
             outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)
+            annotation_ids.extend(annotation_id)
             predictions.extend(predicted.cpu().numpy())
     
     # Convert predictions to labels using the label map
@@ -534,13 +657,124 @@ def predict(model, test_loader, label_map, device):
         invert_label_map[pred] for pred in predictions if pred in invert_label_map
     ]
     
-    return predicted_labels
+    return annotation_ids, predicted_labels
 
-def save_predictions_to_csv(predictions, output_path):
+def predict_hml(
+        model, 
+        test_loader, 
+        label_map,
+        hierarchical_dict,
+        R,
+        device,
+        mode="simple",
+        ):
+    # Get the predictions from the model
+    model.eval()
+    annotation_ids = []
+    predictions = []
+
+    # Get the leaf nodes from the hierarchical dict
+    leaf_nodes = []
+    for key, value in hierarchical_dict.items():
+        if len(value) == 1:
+            leaf_nodes.append(int(key))
+    # sort the leaf nodes
+    leaf_nodes.sort()
+
+    with torch.no_grad():
+        for images, annotation_id in test_loader:
+            images = images.to(device)
+            outputs = model(images)
+            outputs = get_constr_out(outputs, R)
+            batch_len = len(images)
+            if mode == "simple":
+                # check predictions that are leaf nodes
+                predicted = outputs[:, leaf_nodes]
+                # Get max index for each row
+                predicted = torch.argmax(predicted, dim=1)
+                # Get the original leaf node index
+                leaf_nodes_tensor = torch.tensor(leaf_nodes).to(device)
+                leaf_nodes_tensor = leaf_nodes_tensor.unsqueeze(0).repeat(batch_len, 1)
+                predicted = leaf_nodes_tensor[torch.arange(batch_len), predicted]
+            else:
+                raise ValueError(
+                    f"Unknown mode: {mode}. Use 'simple'."
+                )
+            annotation_ids.extend(annotation_id)
+            predictions.extend(predicted.cpu().numpy())
+    # Get the corresponding label from the label map
+    # You are here!
+    predicted_labels = [label_map[str(int(pred))] for pred in predictions]
+
+    return annotation_ids, predicted_labels
+    
+
+def save_predictions_to_csv(annotation_ids, predictions, output_path):
     # Two columns: "annotation_id" and "concept_name"
     # Annotation IDs are the indices of the predictions
     df = pd.DataFrame({
-        "annotation_id": range(len(predictions)),
+        "annotation_id": annotation_ids,
         "concept_name": predictions,
     })
     df.to_csv(output_path, index=False)
+
+# Hierarchical functions
+def convert_indices_to_label(indices, array_len=192):
+    new_array = np.zeros(array_len, dtype=int)
+    for i in indices:
+        new_array[int(i)] = 1
+    return new_array
+
+# For each row, collect the values of the heirarchical headers into a list if they are not null
+def collect_hierarchy(
+        row, 
+        heirarchical_headers=[
+            "phylum", 
+            "class", 
+            "order", 
+            "family", 
+            "genus", 
+            "species"
+            ]
+        ):
+    return [row[header] for header in heirarchical_headers if pd.notnull(row[header])]
+
+def get_hierarchy_from_df(df):
+    # Get the hierarchy from the datafrom with annotations
+    # domain,kingdom,phylum,class,order,family,genus,species
+    df["hierarchy"] = df.apply(
+        lambda row: collect_hierarchy(row), axis=1
+    )
+    parent_child_dict = {}
+    for _, row in df.iterrows():
+        hierarchical_annotation = row["hierarchy"]
+        for i in range(len(hierarchical_annotation)):
+            parent = hierarchical_annotation[i]
+            children = hierarchical_annotation[i:]
+            if parent not in parent_child_dict:
+                parent_child_dict[parent] = []
+            else:
+                parent_child_dict[parent].extend(children)
+    # Turn everything in the dict to ints including keys
+    # Convert keys to int
+    parent_child_dict = {int(k): v for k, v in parent_child_dict.items()}
+    # Convert values to int
+    for parent in parent_child_dict:
+        parent_child_dict[parent] = [int(x) for x in parent_child_dict[parent]]
+    # Remove duplicates in the list of children
+    for parent in parent_child_dict:
+        parent_child_dict[parent] = list(set(parent_child_dict[parent]))
+    descendent_matrix = convert_hierarchy_dict_to_descendent_matrix(
+        parent_child_dict
+    )
+    return parent_child_dict, descendent_matrix
+
+def convert_hierarchy_dict_to_descendent_matrix(
+        parent_child_dict, 
+        ):
+    num_classes = len(parent_child_dict)
+    descendent_matrix = np.zeros((num_classes, num_classes), dtype=int)
+    for parent, children in parent_child_dict.items():
+        for child in children:
+            descendent_matrix[parent][child] = 1
+    return descendent_matrix

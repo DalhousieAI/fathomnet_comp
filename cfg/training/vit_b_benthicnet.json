@@ -1,0 +1,22 @@
+{
+    "enc_arch": "vit_b_16",
+    "enc_path": "./pretrained_encoders/mocov3-100e-prod_vit-b_epoch=099.ckpt",
+    "classifier_type": "one_hot",
+    "seed": 42,
+    "cudnn_deterministic": false,
+    "batch_size": 64,
+    "num_workers": 4,
+    "validation_ratio": 0.0,
+    "fine_tune": true,
+    "optimizer_name": "adamw",
+    "lr": 0.0001,
+    "warmup_start_lr": 0.000001,
+    "min_lr": 0.000001,
+    "weight_decay": 0.0001,
+    "scheduler_name": "warmup_cosine",
+    "max_epochs": 400,
+    "warmup_epochs": 10,
+    "save_model": true,
+    "save_curves": true,
+    "use_benthicnet_normalization": false
+}
