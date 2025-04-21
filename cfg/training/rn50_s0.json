@@ -1,0 +1,23 @@
+{
+    "enc_arch": "resnet50",
+    "enc_path": null,
+    "classifier_type": "one_hot",
+    "seed": 0,
+    "cudnn_deterministic": false,
+    "batch_size": 32,
+    "num_workers": 1,
+    "validation_ratio": 0.2,
+    "fine_tune": true,
+    "optimizer_name": "adamw",
+    "lr": 0.001,
+    "warmup_start_lr": 0.0001,
+    "min_lr": 0.0001,
+    "weight_decay": 0.0001,
+    "scheduler_name": "warmup_cosine",
+    "max_epochs": 100,
+    "warmup_epochs": 10,
+    "save_model": true,
+    "save_curves": true,
+    "use_benthicnet_normalization": false,
+    "custom_trained": false
+}

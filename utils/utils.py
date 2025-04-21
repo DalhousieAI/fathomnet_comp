@@ -50,6 +50,20 @@ _OPTIMIZERS = {
     "adamw": torch.optim.AdamW,
 }
 
+_COST_MATS_PATHS = {
+    "cce": "./cfg/hierarchy/score_table.npy",
+    "ncce": "./cfg/hierarchy/norm_score_table.npy",
+    "cce1": "./cfg/hierarchy/score_table_ones.npy",
+    "ncce1": "./cfg/hierarchy/norm_score_table_ones.npy",
+}
+
+def get_cost_matrix(mode):
+    path = _COST_MATS_PATHS[mode]
+    cost_matrix = np.load(path)
+
+    return torch.from_numpy(cost_matrix).float()
+
+
 def read_json(file_path):
     # Expects a python object in the json file
     # e.g. {"key": "value"}
@@ -242,7 +256,14 @@ def get_augs(colour_jitter: bool, input_size=518, use_benthicnet=True):
     return train_transforms, val_transforms
 
 # Model specific functions
-def load_model_state(model, ckpt_path, origin="", component="encoder", verbose=0):
+def load_model_state(
+        model, 
+        ckpt_path, 
+        origin="", 
+        component="encoder", 
+        custom_trained=True, 
+        verbose=0
+        ):
     # key = 'state_dict' for pre-trained models, 'model' for FB Imagenet
     alt_component_names = {
         "encoder": "backbone",
@@ -256,12 +277,16 @@ def load_model_state(model, ckpt_path, origin="", component="encoder", verbose=0
     else:
         key = "state_dict"
 
-    state = loaded_dict[key]
+    if custom_trained:
+        state = loaded_dict
+    else:
+        state = loaded_dict[key]
+
     loading_state = {}
     model_keys = model.state_dict().keys()
 
     if any(s in ckpt_path for s in ("mocov3", "mae", "vit")) and component == "encoder":
-        if any(s in ckpt_path for s in ("hp", "hl", "hft")):
+        if any(s in ckpt_path for s in ("hp", "hl", "hft")) or custom_trained:
             loading_state = get_vit_state(
                 model, state, model_keys, loading_state, reorder_pos_emb=False
             )
@@ -337,10 +362,11 @@ def build_model(
         encoder_path=None, 
         requires_grad=True,
         output_dim=79,
+        custom_trained=False,
         ):
     enc = _BACKBONES[encoder_arch](weights="DEFAULT")
     if encoder_path:
-        enc = load_model_state(enc, encoder_path)
+        enc = load_model_state(enc, encoder_path, custom_trained=custom_trained)
     else:
         print("No encoder weights loaded.")
     set_requires_grad(enc, requires_grad)
@@ -351,7 +377,7 @@ def build_model(
         features_dim = _VIT_NUM_FEATURES[encoder_arch]
         enc.heads = nn.Identity()
 
-    if classifier_type == "one_hot":
+    if "one_hot" in classifier_type:
         classifier = OneHotClassifier(features_dim, output_dim)
     elif classifier_type == "hml":
         classifier = ConstrainedFFNNModel(
@@ -431,7 +457,7 @@ def train(
         weight_decay=train_kwargs.weight_decay,
     )
 
-    one_hot_cond = train_kwargs.classifier_type == "one_hot"
+    one_hot_cond = "one_hot" in train_kwargs.classifier_type
 
     scheduler = process_scheduler(optimizer, train_kwargs)
 
@@ -454,7 +480,9 @@ def train(
     else:
         validation_losses = None
         validation_accuracies = None
-    if not one_hot_cond:
+    if one_hot_cond:
+        R = None
+    else:
         R = train_kwargs.descendent_matrix.to(device)
 
     for epoch in range(train_kwargs.max_epochs):
@@ -615,7 +643,9 @@ def test(model, val_loader, criterion, device, one_hot_cond=False, R=None):
         for images, labels in val_loader:
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
-            if not one_hot_cond:
+            if one_hot_cond:
+                loss = criterion(outputs, labels)
+            else:
                 assert R is not None, "R matrix is required for HML classifier."
                 loss = mcloss(
                     logits=outputs,
@@ -623,6 +653,7 @@ def test(model, val_loader, criterion, device, one_hot_cond=False, R=None):
                     R=R,
                     criterion=criterion,
                 )
+                
             epoch_loss += loss.item() * images.size(0)
             _, predicted = torch.max(outputs.data, 1)
 
