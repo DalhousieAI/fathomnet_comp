@@ -218,10 +218,10 @@ def predict_labels(faiss_index, labels, paths, test_embeddings, test_df, k=20):
 # Example usage:
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_path = "models/vit_b_32_pre-None_cls-one_hot_seed-0"
+    model_path = "models/vit_l_16_pre-None_cls-one_hot_seed-42_e-50"
     ckpt_path = os.path.join(model_path, "model.ckpt")
     model = build_model(
-        encoder_arch="vit_b_32",
+        encoder_arch="vit_l_16",
         encoder_path=None,
         classifier_type="one_hot",
         requires_grad=False,
@@ -241,6 +241,9 @@ if __name__ == "__main__":
     test_embeddings, _, _ = compute_embeddings(model, test_df, device=device, max_rows=None)
     #Predict - linear index
     num_nearest_neighbors = 20
+
+    model_name = os.path.splitext(os.path.basename(model_path))[0]
+
     # Get predictions from all three protocols
     (image_names,
      preds_consensus,
@@ -248,9 +251,9 @@ if __name__ == "__main__":
      preds_most_common) = predict_labels(faiss_linear_index, train_labels, train_paths, test_embeddings, test_df, num_nearest_neighbors)
     
     # Save predictions to separate CSV files
-    save_predictions_to_csv(image_names, preds_consensus, os.path.join(model_path, "fssai_linear_index_predictions_vit_b_32_pre-None_cls-one_hot_seed-0.csv"))
-    save_predictions_to_csv(image_names, preds_majority, os.path.join(model_path, "fssai_linear_index_majority_vit_b_32_pre-None_cls-one_hot_seed-0.csv"))
-    save_predictions_to_csv(image_names, preds_most_common, os.path.join(model_path, "fssai_linear_index_most_common_vit_b_32_pre-None_cls-one_hot_seed-0.csv"))
+    save_predictions_to_csv(image_names, preds_consensus, os.path.join(model_path, "fssai_linear_index_predictions_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_majority, os.path.join(model_path, "fssai_linear_index_majority_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_most_common, os.path.join(model_path, "fssai_linear_index_most_common_{model_name}.csv"))
 
     #Predict - hierarchical index
     # Get predictions from all three protocols
@@ -260,6 +263,6 @@ if __name__ == "__main__":
      preds_most_common) = predict_labels(faiss_hierarchical_index, train_labels, train_paths, test_embeddings, test_df, num_nearest_neighbors)
     
     # Save predictions to separate CSV files
-    save_predictions_to_csv(image_names, preds_consensus, os.path.join(model_path, "fssai_hierarchical_index_predictions_vit_b_32_pre-None_cls-one_hot_seed-0.csv"))
-    save_predictions_to_csv(image_names, preds_majority, os.path.join(model_path, "fssai_hierarchical_index_majority_vit_b_32_pre-None_cls-one_hot_seed-0.csv"))
-    save_predictions_to_csv(image_names, preds_most_common, os.path.join(model_path, "fssai_hierarchical_index_most_common_vit_b_32_pre-None_cls-one_hot_seed-0.csv"))
+    save_predictions_to_csv(image_names, preds_consensus, os.path.join(model_path, "fssai_hierarchical_index_predictions_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_majority, os.path.join(model_path, "fssai_hierarchical_index_majority_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_most_common, os.path.join(model_path, "fssai_hierarchical_index_most_common_{model_name}.csv"))
