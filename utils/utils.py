@@ -29,6 +29,7 @@ _BACKBONES = {
     "efficientnet-b0": models.efficientnet_b0,
     "efficientnet-b1": models.efficientnet_b1,
     "efficientnet-b2": models.efficientnet_b2,
+    "efficientnet_v2_l": models.efficientnet_v2_l,
     "vit_b_16": models.vit_b_16,
     "vit_b_32": models.vit_b_32,
     "vit_l_16": models.vit_l_16,
@@ -42,6 +43,13 @@ _VIT_NUM_FEATURES = {
     "vit_l_16": 1024,
     "vit_l_32": 1024,
     "vit_h_14": 1280,
+}
+
+_EFFICIENTNET_NUM_FEATURES = {
+    "efficientnet-b0": 1280,
+    "efficientnet-b1": 1280,
+    "efficientnet-b2": 1408,
+    "efficientnet_v2_l": 1280,
 }
 
 _OPTIMIZERS = {
@@ -376,6 +384,9 @@ def build_model(
     elif "vit" in encoder_arch:
         features_dim = _VIT_NUM_FEATURES[encoder_arch]
         enc.heads = nn.Identity()
+    elif "efficientnet" in encoder_arch:
+        features_dim = _EFFICIENTNET_NUM_FEATURES[encoder_arch]
+        enc.classifier = nn.Identity()
 
     if "one_hot" in classifier_type:
         classifier = OneHotClassifier(features_dim, output_dim)
