@@ -1,10 +1,9 @@
 #!/bin/bash
 
 cfg_paths=(
-    "cfg/training/vit-h_s42_cce1.json"
-    "cfg/training/vit-h_s42_cce1_e20.json"
-    "cfg/training/vit-h_s42_ncce1.json"
-    "cfg/training/vit-h_s42_ncce1_e20.json"
+    "cfg/training/efficientnet-b0_s42.json"
+    "cfg/training/efficientnet-b1_s42.json"
+    "cfg/training/efficientnet-b1_s42_e20.json"
 )
 
 # Loop over each cfg path

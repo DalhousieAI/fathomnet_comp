@@ -29,6 +29,9 @@ _BACKBONES = {
     "efficientnet-b0": models.efficientnet_b0,
     "efficientnet-b1": models.efficientnet_b1,
     "efficientnet-b2": models.efficientnet_b2,
+    "efficientnet-v2-s": models.efficientnet_v2_s,
+    "efficientnet-v2-m": models.efficientnet_v2_m,
+    "efficientnet-v2-l": models.efficientnet_v2_l,
     "vit_b_16": models.vit_b_16,
     "vit_b_32": models.vit_b_32,
     "vit_l_16": models.vit_l_16,
@@ -376,6 +379,16 @@ def build_model(
     elif "vit" in encoder_arch:
         features_dim = _VIT_NUM_FEATURES[encoder_arch]
         enc.heads = nn.Identity()
+    elif "efficientnet" in encoder_arch:
+        # EfficientNet models in torchvision have a classifier attribute (nn.Sequential)
+        # where the final linear layer holds the in_features.
+        if isinstance(enc.classifier, (nn.Sequential, list)):
+            features_dim = enc.classifier[1].in_features
+        else:
+            features_dim = enc.classifier.in_features
+        enc.classifier = nn.Identity()
+    else:
+        raise ValueError(f"Unknown encoder architecture: {encoder_arch}")
 
     if "one_hot" in classifier_type:
         classifier = OneHotClassifier(features_dim, output_dim)

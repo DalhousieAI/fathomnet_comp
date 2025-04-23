@@ -33,8 +33,8 @@ def main():
 
     is_hml = train_kwargs.classifier_type == "hml"
 
-    df = pd.read_csv("./data/train/annotations.csv")
-    test_df = pd.read_csv("./data/test/annotations.csv")
+    df = pd.read_csv("../data/train/annotations.csv")
+    test_df = pd.read_csv("../data/test/annotations.csv")
 
     df, label_map = map_label_to_idx(df, "label")
 
