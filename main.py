@@ -41,7 +41,7 @@ def main():
     label_col = "label_idx"
     if is_hml:
         label_map = json.load(
-            open("./data/train/index_to_taxon.json", "r")
+            open("../data/train/index_to_taxon.json", "r")
         )
         assert train_kwargs.hierarchy_dict_path is not None, (
             "hierarchy_dict_path must be specified for HML classifier."
@@ -59,7 +59,8 @@ def main():
     )
 
     train_augs, val_augs = get_augs(
-        colour_jitter=False, 
+        colour_jitter=train_kwargs.use_colour_jitter,
+        input_size=train_kwargs.input_size, 
         use_benthicnet=train_kwargs.use_benthicnet_normalization
         )
 

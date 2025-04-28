@@ -219,23 +219,39 @@ def get_augs(colour_jitter: bool, input_size=518, use_benthicnet=True):
     if colour_jitter:
         train_transforms = transforms.Compose(
             [
-                transforms.Resize(
-                    (input_size, input_size), interpolation=Image.BICUBIC
-                ),
-                # Crop settings may be too aggresive for biota
+                transforms.Resize((input_size, input_size), interpolation=Image.BICUBIC),
+                # Use random resized crop for variation
                 transforms.RandomResizedCrop(
                     input_size, scale=(0.1, 1.0), interpolation=Image.BICUBIC
                 ),
                 transforms.RandomHorizontalFlip(),
-                transforms.ColorJitter(
-                    brightness=0.4,
-                    contrast=0.4,
-                    saturation=0.4,
+                # Randomly apply color jitter (standard brightness/contrast/saturation augmentation)
+                transforms.RandomApply(
+                    [transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4)],
+                    p=0.8,
+                ),
+                # Randomly choose between a perspective distortion and an affine transformation (zoom out effect)
+                transforms.RandomChoice(
+                    [
+                        transforms.RandomPerspective(distortion_scale=0.5, p=1.0),
+                        transforms.RandomAffine(degrees=0, scale=(0.8, 1.0)),
+                    ]
+                ),
+                # Randomly apply an extra crop with padding
+                transforms.RandomApply(
+                    [transforms.RandomCrop(input_size, padding=4)],
+                    p=0.5,
                 ),
                 transforms.ToTensor(),
                 transforms.Lambda(convert_to_rgb),
+                # Apply lighting noise (AlexNet-style PCA noise)
                 Lighting(0.1, _IMAGENET_PCA["eigval"], _IMAGENET_PCA["eigvec"]),
                 default_mean_std,
+                # Randomly apply random erasing
+                transforms.RandomApply(
+                    [transforms.RandomErasing(p=1.0, scale=(0.02, 0.33), ratio=(0.3, 3.3))],
+                    p=0.5,
+                ),
             ]
         )
     else:
@@ -572,7 +588,7 @@ def train(
             enc_path = "None"
         model_path = f"./models/{train_kwargs.enc_arch}_pre-" + \
             f"{enc_path}_cls-{train_kwargs.classifier_type}_" + \
-            f"seed-{train_kwargs.seed}_e-{train_kwargs.max_epochs}"
+            f"seed-{train_kwargs.seed}_e-{train_kwargs.max_epochs}_aug-{train_kwargs.use_colour_jitter}_isz-{train_kwargs.input_size}"
 
         if not os.path.exists(model_path):
             os.makedirs(model_path)

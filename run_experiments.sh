@@ -1,9 +1,7 @@
 #!/bin/bash
 
 cfg_paths=(
-    "cfg/training/efficientnet-b0_s42.json"
-    "cfg/training/efficientnet-b1_s42.json"
-    "cfg/training/efficientnet-b1_s42_e20.json"
+    "cfg/training/efficientnet_v2_m_s42_e150_isz224.json"
 )
 
 # Loop over each cfg path
