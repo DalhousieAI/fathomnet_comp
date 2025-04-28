@@ -19,5 +19,6 @@
     "save_model": true,
     "save_curves": true,
     "use_benthicnet_normalization": false,
-    "custom_trained": false
+    "custom_trained": false,
+    "num_classifiers": 10
 }

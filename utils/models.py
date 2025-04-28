@@ -15,21 +15,23 @@ def get_constr_out(x, R):
     final_out, _ = torch.max(R_batch * c_out.double(), dim=2)
     return final_out
 
-
 class FathomNetModel(nn.Module):
     def __init__(
             self,
             encoder,
-            classifier,
+            classifiers,
     ):
         super(FathomNetModel, self).__init__()
         self.encoder = encoder
-        self.classifier = classifier
+        self.classifiers = classifiers
 
     def forward(self, x):
+        outs = []
         x = self.encoder(x)
-        x = self.classifier(x)
-        return x
+        for classifier in self.classifiers:
+            out = classifier(x)
+            outs.append(out)
+        return outs
     
 class OneHotClassifier(nn.Module):
     def __init__(self, in_features, num_classes):
