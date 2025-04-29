@@ -55,6 +55,9 @@ class CostWeightedCELossWithLogits(nn.Module):
         loss = torch.mean(loss)
 
         return loss
+
+if __name__ == __main__:
+    pass
         
 
 
