@@ -1,0 +1,15 @@
+{
+    "enc_arch": "efficientnet-v2-m",
+    "model_path": "models/efficientnet-v2-m_pre-None_cls-one_hot_seed-42_e-150_aug-True",
+    "enc_path": null,
+    "classifier_type": "one_hot",
+    "seed": 42,
+    "cudnn_deterministic": false,
+    "batch_size": 4,
+    "num_workers": 1,
+    "validation_ratio": 0.2,
+    "input_size": 518,
+    "fine_tune": false,
+    "use_benthicnet_normalization": false,
+    "use_colour_jitter": false
+}

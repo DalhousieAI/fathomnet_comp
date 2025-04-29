@@ -598,7 +598,7 @@ def train(
     # Save predictions on test set
     if test_loader is not None and label_map is not None:
         if one_hot_cond:
-            annotation_ids, predictions = predict(model, test_loader, label_map, device)
+            annotation_ids, predictions, _ = predict(model, test_loader, label_map, device)
         else:
             annotation_ids, predictions = predict_hml(
                 model, 
@@ -705,19 +705,20 @@ def predict(model, test_loader, label_map, device):
     annotation_ids = []
     predictions = []
     image_names = []
+    confidences = []
     with torch.no_grad():
         for images, annotation_id in test_loader:
             images = images.to(device)
             outputs = model(images)
-            _, predicted = torch.max(outputs.data, 1)
+            max_vals, predicted = torch.max(outputs.data, 1)
             annotation_ids.extend(annotation_id)
             predictions.extend(predicted.cpu().numpy())
-
+            confidences.extend(max_vals.cpu().numpy())
     predicted_labels = [
         invert_label_map[pred] for pred in predictions if pred in invert_label_map
     ]
     
-    return annotation_ids, predicted_labels
+    return annotation_ids, predicted_labels, confidences
 
 def predict_hml(
         model, 
@@ -769,13 +770,17 @@ def predict_hml(
     return annotation_ids, predicted_labels
     
 
-def save_predictions_to_csv(annotation_ids, predictions, output_path):
+def save_predictions_to_csv(annotation_ids, predictions, output_path, confidences=None):
     # Two columns: "annotation_id" and "concept_name"
     # Annotation IDs are the indices of the predictions
-    df = pd.DataFrame({
+    data = {
         "annotation_id": annotation_ids,
         "concept_name": predictions,
-    })
+    }
+    if confidences is not None:
+        data["confidence"] = confidences
+
+    df = pd.DataFrame(data)
     df.to_csv(output_path, index=False)
 
 # Hierarchical functions
