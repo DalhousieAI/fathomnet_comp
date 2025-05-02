@@ -32,8 +32,12 @@ def main():
     set_seed(train_kwargs.seed, cudnn_deterministic=train_kwargs.cudnn_deterministic)
 
     is_hml = train_kwargs.classifier_type == "hml"
+    is_lnh = train_kwargs.classifier_type == "lnh"
 
-    df = pd.read_csv("../data/train/annotations.csv")
+    if is_lnh:
+        df = pd.read_csv("../data/train/annotations.csv")
+    else:
+        df = pd.read_csv("../data/train/annotations.csv")
     test_df = pd.read_csv("../data/test/annotations.csv")
 
     df, label_map = map_label_to_idx(df, "label")

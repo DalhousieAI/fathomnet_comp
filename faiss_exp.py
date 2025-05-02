@@ -26,7 +26,7 @@ def get_index_taxtree_map():
         index_taxtree_map[ann_id] = annotation.get("taxonomy_tree", {})
     return index_taxtree_map
 
-def extract_embedding(model, image_path, device='cpu'):
+def extract_embedding(model, image_path, input_size, device='cpu'):
     """
     Extracts an embedding from a given image using the provided ViT model.
     
@@ -40,7 +40,7 @@ def extract_embedding(model, image_path, device='cpu'):
     """
     # Define the preprocessing transformations
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((input_size, input_size)),
         transforms.ToTensor(),
         transforms.Lambda(convert_to_rgb),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -60,7 +60,7 @@ def extract_embedding(model, image_path, device='cpu'):
     embedding = embedding.squeeze().cpu().numpy()
     return embedding
 
-def compute_embeddings(model, data_df, device='cpu', max_rows=None):
+def compute_embeddings(model, data_df, input_size=518, device='cpu', max_rows=None):
     """
     Compute embeddings, labels, and paths for training images.
     """
@@ -72,7 +72,7 @@ def compute_embeddings(model, data_df, device='cpu', max_rows=None):
         img_path = row["path"]
         label = row["label"]
         print(f"Processing image: {img_path}, label: {label}")
-        emb = extract_embedding(model, img_path, device=device)
+        emb = extract_embedding(model, img_path, input_size, device=device)
         embeddings.append(emb)
         labels.append(label)
         paths.append(img_path)
@@ -218,14 +218,15 @@ def predict_labels(faiss_index, labels, paths, test_embeddings, test_df, k=20):
 # Example usage:
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_path = "models/vit_l_16_pre-None_cls-one_hot_seed-42_e-50"
+    model_path = "models/vit_h_14_pre-None_cls-one_hot_seed-42_e-15"
     ckpt_path = os.path.join(model_path, "model.ckpt")
     model = build_model(
-        encoder_arch="vit_l_16",
+        encoder_arch="vit_h_14",
         encoder_path=None,
         classifier_type="one_hot",
         requires_grad=False,
     )
+    input_size = 518
     
     # Load the checkpoint state dict
     state_dict = torch.load(ckpt_path, map_location=device)
@@ -233,7 +234,7 @@ if __name__ == "__main__":
     model = model.to(device)
 
     train_df, test_df = load_data()
-    embeddings, train_labels, train_paths = compute_embeddings(model, train_df, device=device, max_rows=None)
+    embeddings, train_labels, train_paths = compute_embeddings(model, train_df, input_size, device=device, max_rows=None)
     # Build the FAISS index from training data
     faiss_linear_index = build_linear_faiss_index(embeddings)
     faiss_hierarchical_index = build_hierarchical_faiss_index(embeddings, nprobe=10)
@@ -251,9 +252,9 @@ if __name__ == "__main__":
      preds_most_common) = predict_labels(faiss_linear_index, train_labels, train_paths, test_embeddings, test_df, num_nearest_neighbors)
     
     # Save predictions to separate CSV files
-    save_predictions_to_csv(image_names, preds_consensus, os.path.join(model_path, "fssai_linear_index_predictions_{model_name}.csv"))
-    save_predictions_to_csv(image_names, preds_majority, os.path.join(model_path, "fssai_linear_index_majority_{model_name}.csv"))
-    save_predictions_to_csv(image_names, preds_most_common, os.path.join(model_path, "fssai_linear_index_most_common_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_consensus, os.path.join(model_path, f"fssai_linear_index_predictions_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_majority, os.path.join(model_path, f"fssai_linear_index_majority_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_most_common, os.path.join(model_path, f"fssai_linear_index_most_common_{model_name}.csv"))
 
     #Predict - hierarchical index
     # Get predictions from all three protocols
@@ -263,6 +264,6 @@ if __name__ == "__main__":
      preds_most_common) = predict_labels(faiss_hierarchical_index, train_labels, train_paths, test_embeddings, test_df, num_nearest_neighbors)
     
     # Save predictions to separate CSV files
-    save_predictions_to_csv(image_names, preds_consensus, os.path.join(model_path, "fssai_hierarchical_index_predictions_{model_name}.csv"))
-    save_predictions_to_csv(image_names, preds_majority, os.path.join(model_path, "fssai_hierarchical_index_majority_{model_name}.csv"))
-    save_predictions_to_csv(image_names, preds_most_common, os.path.join(model_path, "fssai_hierarchical_index_most_common_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_consensus, os.path.join(model_path, f"fssai_hierarchical_index_predictions_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_majority, os.path.join(model_path, f"fssai_hierarchical_index_majority_{model_name}.csv"))
+    save_predictions_to_csv(image_names, preds_most_common, os.path.join(model_path, f"fssai_hierarchical_index_most_common_{model_name}.csv"))
