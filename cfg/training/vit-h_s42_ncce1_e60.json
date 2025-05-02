@@ -1,7 +1,7 @@
 {
     "enc_arch": "vit_h_14",
     "enc_path": null,
-    "classifier_type": "one_hot_cce1",
+    "classifier_type": "one_hot_ncce1",
     "seed": 42,
     "cudnn_deterministic": false,
     "batch_size": 4,
@@ -14,7 +14,7 @@
     "min_lr": 0.0001,
     "weight_decay": 0.0001,
     "scheduler_name": "warmup_cosine",
-    "max_epochs": 20,
+    "max_epochs": 60,
     "warmup_epochs": 10,
     "save_model": true,
     "save_curves": true,

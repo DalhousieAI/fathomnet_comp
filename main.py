@@ -6,10 +6,12 @@ import numpy as np
 import pandas as pd
 import torch
 
+from utils.cost_weighted_ce import CostWeightedCELossWithLogits, CalcDistance
 from utils.dataset import FathomNetDataset
 from utils.utils import build_model, df_split, get_augs, \
     map_label_to_idx, set_seed, collect_hierarchy, \
-    read_json, train, convert_indices_to_label
+    convert_indices_to_label, get_cost_matrix, train, \
+    read_json
 
 def main():
     parser = argparse.ArgumentParser(description="Read a JSON file and load it as a dictionary.")
@@ -21,7 +23,7 @@ def main():
         help='Path to the JSON file for training configuration.'
     )
     args = parser.parse_args()
-
+    
     train_kwargs = read_json(args.train_cfg)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -122,10 +124,24 @@ def main():
 
     train_kwargs.steps_per_epoch = len(train_dataloader)
 
-    if train_kwargs.classifier_type == "one_hot":
+    if "one_hot" in train_kwargs.classifier_type:
+        metric_cost_matrix = get_cost_matrix(
+                mode="cce"
+            ).to(device)
+        dist_metric = CalcDistance(
+            cost_matrix=metric_cost_matrix,
+        )
         output_dim = len(label_map)
         criterion = torch.nn.CrossEntropyLoss()
-    elif train_kwargs.classifier_type == "hml":
+        if train_kwargs.classifier_type != "one_hot":
+            mode = train_kwargs.classifier_type.split("_")[2]
+            cost_matrix = get_cost_matrix(
+                mode=mode
+            ).to(device)
+            criterion = CostWeightedCELossWithLogits(
+                cost_matrix=cost_matrix,
+            )
+    elif is_hml:
         assert train_kwargs.descendent_matrix_path is not None, (
             "descendent_matrix_path must be specified for HML classifier."
         )
@@ -142,7 +158,9 @@ def main():
         encoder_arch=train_kwargs.enc_arch,
         encoder_path=train_kwargs.enc_path,
         classifier_type=train_kwargs.classifier_type,
+        num_classifiers=train_kwargs.num_classifiers,
         requires_grad=train_kwargs.fine_tune,
+        custom_trained=train_kwargs.custom_trained,
         output_dim=output_dim,
     )
 
@@ -154,7 +172,9 @@ def main():
         val_loader=val_dataloader,
         test_loader=test_dataloader,
         label_map=label_map,
-        criterion=criterion, 
+        criterion=criterion,
+        dist_metric=dist_metric \
+            if "one_hot" in train_kwargs.classifier_type else None, 
         device=device,
         train_kwargs=train_kwargs,
         )

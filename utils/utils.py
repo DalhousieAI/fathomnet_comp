@@ -47,6 +47,13 @@ _VIT_NUM_FEATURES = {
     "vit_h_14": 1280,
 }
 
+_EFFICIENTNET_NUM_FEATURES = {
+    "efficientnet-b0": 1280,
+    "efficientnet-b1": 1280,
+    "efficientnet-b2": 1408,
+    "efficientnet_v2_l": 1280,
+}
+
 _OPTIMIZERS = {
     "sgd": torch.optim.SGD,
     "adam": torch.optim.Adam,
@@ -54,6 +61,7 @@ _OPTIMIZERS = {
 }
 
 _COST_MATS_PATHS = {
+    "dist": "./cfg/hierarchy/score_table.npy",
     "cce": "./cfg/hierarchy/score_table.npy",
     "ncce": "./cfg/hierarchy/norm_score_table.npy",
     "cce1": "./cfg/hierarchy/score_table_ones.npy",
@@ -200,7 +208,7 @@ def convert_to_rgb(image):
         return image[:3, :, :]  # Keep only the first 3 channels (R, G, B)
     return image
 
-def get_augs(colour_jitter: bool, input_size=518, use_benthicnet=True):
+def get_augs(colour_jitter: bool, input_size=224, use_benthicnet=True):
     imagenet_mean_std = transforms.Normalize(
         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
     )
@@ -377,7 +385,8 @@ def set_requires_grad(model, val):
 
 def build_model(
         encoder_arch, 
-        classifier_type, 
+        classifier_type,
+        num_classifiers=1, 
         encoder_path=None, 
         requires_grad=True,
         output_dim=79,
@@ -396,29 +405,25 @@ def build_model(
         features_dim = _VIT_NUM_FEATURES[encoder_arch]
         enc.heads = nn.Identity()
     elif "efficientnet" in encoder_arch:
-        # EfficientNet models in torchvision have a classifier attribute (nn.Sequential)
-        # where the final linear layer holds the in_features.
-        if isinstance(enc.classifier, (nn.Sequential, list)):
-            features_dim = enc.classifier[1].in_features
-        else:
-            features_dim = enc.classifier.in_features
+        features_dim = _EFFICIENTNET_NUM_FEATURES[encoder_arch]
         enc.classifier = nn.Identity()
-    else:
-        raise ValueError(f"Unknown encoder architecture: {encoder_arch}")
 
-    if "one_hot" in classifier_type:
-        classifier = OneHotClassifier(features_dim, output_dim)
-    elif classifier_type == "hml":
-        classifier = ConstrainedFFNNModel(
-            input_dim=features_dim, 
-            hidden_dim=[features_dim], 
-            output_dim=output_dim, 
-            dropout=0.7,
-        )
-    else:
-        raise ValueError(f"Unknown classifier type: {classifier_type}")
-    
-    model = FathomNetModel(enc, classifier)
+    classifiers = []
+    for _ in range(num_classifiers):
+        if "one_hot" in classifier_type:
+            classifier = OneHotClassifier(features_dim, output_dim)
+        elif classifier_type == "hml":
+            classifier = ConstrainedFFNNModel(
+                input_dim=features_dim, 
+                hidden_dim=[features_dim], 
+                output_dim=output_dim, 
+                dropout=0.7,
+            )
+        else:
+            raise ValueError(f"Unknown classifier type: {classifier_type}")
+        classifiers.append(classifier)
+    classifiers = nn.ModuleList(classifiers)
+    model = FathomNetModel(enc, classifiers)
     
     return model
 
@@ -469,13 +474,45 @@ def mcloss(logits, targets, R, criterion):
 
     return loss
 
+def predict_batch(outputs, k=2, eps=1e-8, requires_grad=False):
+    if requires_grad:
+        in_outputs = outputs
+    else:
+        in_outputs = [output.detach() for output in outputs]
+    in_outputs = torch.stack(in_outputs, dim=0)
+    softmax = nn.Softmax(dim=1)
+    softmax_outputs = softmax(in_outputs)
+
+    avg_output = torch.mean(softmax_outputs, dim=0)
+    top_k_means = torch.topk(avg_output, k=k, dim=1, sorted=True)[0]
+
+    pred_mean_prob, predicted = torch.max(avg_output.data, 1)
+
+    # Ensure predicted does not have a gradient
+    predicted = predicted.detach()
+
+    if softmax_outputs.shape[0] == 1:
+        constrained_pcs = torch.ones_like(predicted, dtype=torch.float32)
+    else:
+        std_output = torch.std(softmax_outputs, dim=0)
+        top_k_stds = torch.topk(std_output, k=k, dim=1)[0]
+
+        pcs_factor_num = (top_k_means[:, 0] - top_k_means[:, 1])
+        pcs_factor_denom = top_k_stds[:, 0] + top_k_stds[:, 1]
+        pcs_exponent = pcs_factor_num / (pcs_factor_denom + eps)
+        
+        constrained_pcs = 1 - torch.exp(-pcs_exponent)
+    
+    return predicted, constrained_pcs*pred_mean_prob
+
 def train(
         model, 
         train_loader,
         val_loader,
         test_loader,
         label_map, 
-        criterion, 
+        criterion,
+        dist_metric, 
         device,
         train_kwargs,
         ):
@@ -493,6 +530,8 @@ def train(
     model.train()
 
     training_losses = []
+    avg_confidences = []
+    avg_dists = []
     if one_hot_cond:
         training_accuracies = []
     else:
@@ -522,36 +561,52 @@ def train(
             images, labels = images.to(device), labels.to(device)
 
             optimizer.zero_grad()
-            
             outputs = model(images)
 
-            if one_hot_cond:
-                loss = criterion(outputs, labels)
-            else:
-                # Turn labels into doubles
-                labels = labels.double()
-                loss = mcloss(
-                    logits=outputs,
-                    targets=labels,
-                    R=R,
-                    criterion=criterion,
-                )
-            loss.backward()
+            losses = 0.0
+            for output in outputs:
+                if one_hot_cond:
+                    loss = criterion(output, labels)
+                else:
+                    # Turn labels into doubles
+                    labels = labels.double()
+                    loss = mcloss(
+                        logits=output,
+                        targets=labels,
+                        R=R,
+                        criterion=criterion,
+                    )
+                losses += loss
+            losses.backward()
             optimizer.step()
 
-            epoch_loss += loss.item() * images.size(0)
+            epoch_loss += losses.item() * images.size(0)
             
             if one_hot_cond:
-                _, predicted = torch.max(outputs.data, 1)
+                predicted, confidence = predict_batch(outputs)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
+
+                avg_dist = dist_metric(
+                    predictions=predicted,
+                    targets=labels,
+                )
+                avg_dists.append(avg_dist)
+
+                avg_confidence = torch.mean(confidence).item()
+                avg_confidences.append(avg_confidence)
 
         epoch_loss = epoch_loss / len(train_loader.dataset)
         
         if one_hot_cond:
             accuracy = 100 * correct / total
+            avg_confidence = np.mean(avg_confidences)
+            avg_dist = np.mean(avg_dists)
+            
             print(f"Epoch [{epoch+1}/{train_kwargs.max_epochs}], " + \
-                f"Loss: {epoch_loss:.4f}, Accuracy: {accuracy:.2f}%")
+                f"Loss: {epoch_loss:.4f}, Accuracy: {accuracy:.2f}%, " + \
+                f"Avg. Confidence: {avg_confidence:.2f} " + \
+                f"Avg. Distance: {avg_dist:.2f}")
             training_accuracies.append(accuracy)
         else:
             print(f"Epoch [{epoch+1}/{train_kwargs.max_epochs}], " + \
@@ -559,17 +614,20 @@ def train(
         training_losses.append(epoch_loss)
         
         if val_loader is not None:
-            val_loss, val_accuracy = test(
+            val_loss, val_accuracy, val_confidence, val_dist = test(
                 model=model,
                 val_loader=val_loader,
                 criterion=criterion,
+                dist_metric=dist_metric,
                 device=device,
                 one_hot_cond=one_hot_cond,
                 R=R,
             )
             if one_hot_cond:
                 print(f"Validation Loss: {val_loss:.4f}, " + \
-                    f"Validation Accuracy: {val_accuracy:.2f}%")
+                    f"Validation Accuracy: {val_accuracy:.2f}% " + \
+                    f"Avg. Confidence: {val_confidence:.2f} " + \
+                    f"Avg. Distance: {val_dist:.2f}")
                 validation_accuracies.append(val_accuracy)
             else:
                 print(f"Validation Loss: {val_loss:.4f}")
@@ -588,7 +646,8 @@ def train(
             enc_path = "None"
         model_path = f"./models/{train_kwargs.enc_arch}_pre-" + \
             f"{enc_path}_cls-{train_kwargs.classifier_type}_" + \
-            f"seed-{train_kwargs.seed}_e-{train_kwargs.max_epochs}_aug-{train_kwargs.use_colour_jitter}_isz-{train_kwargs.input_size}"
+            f"seed-{train_kwargs.seed}_e-{train_kwargs.max_epochs}_aug-{train_kwargs.use_colour_jitter}_isz-{train_kwargs.input_size}" + \
+            f"lr-{train_kwargs.lr}_n-heads-{train_kwargs.num_classifiers}" \
 
         if not os.path.exists(model_path):
             os.makedirs(model_path)
@@ -598,7 +657,7 @@ def train(
     # Save predictions on test set
     if test_loader is not None and label_map is not None:
         if one_hot_cond:
-            annotation_ids, predictions = predict(model, test_loader, label_map, device)
+            annotation_ids, predictions, confidences = predict(model, test_loader, label_map, device)
         else:
             annotation_ids, predictions = predict_hml(
                 model, 
@@ -609,9 +668,11 @@ def train(
                 device,
                 mode="simple",
             )
+            confidence = None
         save_predictions_to_csv(
             annotation_ids, 
-            predictions, 
+            predictions,
+            confidences, 
             os.path.join(model_path, "predictions.csv")
             )
 
@@ -662,9 +723,19 @@ def plot_training(
     if save_path:
         plt.savefig(save_path)
 
-def test(model, val_loader, criterion, device, one_hot_cond=False, R=None):
+def test(
+        model, 
+        val_loader, 
+        criterion,
+        dist_metric, 
+        device, 
+        one_hot_cond=False, 
+        R=None
+        ):
     model.eval()
     epoch_loss = 0.0
+    avg_confidences = []
+    avg_dists = []
     if one_hot_cond:
         correct = 0
         total = 0
@@ -672,31 +743,46 @@ def test(model, val_loader, criterion, device, one_hot_cond=False, R=None):
         for images, labels in val_loader:
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
-            if one_hot_cond:
-                loss = criterion(outputs, labels)
-            else:
-                assert R is not None, "R matrix is required for HML classifier."
-                loss = mcloss(
-                    logits=outputs,
-                    targets=labels.double(),
-                    R=R,
-                    criterion=criterion,
-                )
+            losses = 0.0
+            for output in outputs:
+                if one_hot_cond:
+                    loss = criterion(output, labels)
+                else:
+                    assert R is not None, "R matrix is required for HML classifier."
+                    loss = mcloss(
+                        logits=output,
+                        targets=labels.double(),
+                        R=R,
+                        criterion=criterion,
+                    )
+                losses += loss.item()
                 
-            epoch_loss += loss.item() * images.size(0)
-            _, predicted = torch.max(outputs.data, 1)
+            epoch_loss += losses * images.size(0)
 
             if one_hot_cond:
+                predicted, confidence = predict_batch(outputs)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
+
+                avg_dist = dist_metric(
+                    predictions=predicted,
+                    targets=labels,
+                )
+
+                avg_dists.append(avg_dist)
+
+                avg_confidence = torch.mean(confidence).item()
+                avg_confidences.append(avg_confidence)
                 
     epoch_loss = epoch_loss / len(val_loader.dataset)
 
     if one_hot_cond:
         accuracy = 100 * correct / total
-        return epoch_loss, accuracy
+        avg_confidences = np.mean(avg_confidences)
+        avg_dist = np.mean(avg_dists)
+        return epoch_loss, accuracy, avg_confidences, avg_dist
     else:
-        return epoch_loss, None
+        return epoch_loss, None, None, None
 
 def predict(model, test_loader, label_map, device):
     invert_label_map = {v: k for k, v in label_map.items()}
@@ -704,20 +790,23 @@ def predict(model, test_loader, label_map, device):
     model.eval()
     annotation_ids = []
     predictions = []
-    image_names = []
+    confidences = []
     with torch.no_grad():
         for images, annotation_id in test_loader:
             images = images.to(device)
             outputs = model(images)
-            _, predicted = torch.max(outputs.data, 1)
+
+            predicted, confidence = predict_batch(outputs)
             annotation_ids.extend(annotation_id)
             predictions.extend(predicted.cpu().numpy())
-
+            confidences.extend(confidence.cpu().numpy())
+    
+    # Convert predictions to labels using the label map
     predicted_labels = [
         invert_label_map[pred] for pred in predictions if pred in invert_label_map
     ]
     
-    return annotation_ids, predicted_labels
+    return annotation_ids, predicted_labels, confidences
 
 def predict_hml(
         model, 
@@ -769,12 +858,13 @@ def predict_hml(
     return annotation_ids, predicted_labels
     
 
-def save_predictions_to_csv(annotation_ids, predictions, output_path):
+def save_predictions_to_csv(annotation_ids, predictions, confidences, output_path):
     # Two columns: "annotation_id" and "concept_name"
     # Annotation IDs are the indices of the predictions
     df = pd.DataFrame({
         "annotation_id": annotation_ids,
         "concept_name": predictions,
+        "confidence": confidences,
     })
     df.to_csv(output_path, index=False)
 
