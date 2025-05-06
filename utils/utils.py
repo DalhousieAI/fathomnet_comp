@@ -647,7 +647,7 @@ def train(
         model_path = f"./models/{train_kwargs.enc_arch}_pre-" + \
             f"{enc_path}_cls-{train_kwargs.classifier_type}_" + \
             f"seed-{train_kwargs.seed}_e-{train_kwargs.max_epochs}_aug-{train_kwargs.use_colour_jitter}_isz-{train_kwargs.input_size}" + \
-            f"lr-{train_kwargs.lr}_n-heads-{train_kwargs.num_classifiers}" \
+            f"lr-{train_kwargs.lr}_n-heads-{train_kwargs.num_classifiers}_lnh{train_kwargs.lnh}_bal{train_kwargs.class_balanced}" \
 
         if not os.path.exists(model_path):
             os.makedirs(model_path)

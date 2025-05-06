@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from utils.cost_weighted_ce import CostWeightedCELossWithLogits, CalcDistance
+from utils.cost_weighted_ce import CostWeightedCELossWithLogits, CalcDistance, assign_class_weights
 from utils.dataset import FathomNetDataset
 from utils.utils import build_model, df_split, get_augs, \
     map_label_to_idx, set_seed, collect_hierarchy, \
@@ -37,7 +37,7 @@ def main():
     is_lnh = train_kwargs.classifier_type == "lnh"
 
     if is_lnh:
-        df = pd.read_csv("../data/train/annotations.csv")
+        df = pd.read_csv("cfg/hierarchy/leafnode_labels_train.csv")
     else:
         df = pd.read_csv("../data/train/annotations.csv")
     test_df = pd.read_csv("../data/test/annotations.csv")
@@ -132,7 +132,19 @@ def main():
             cost_matrix=metric_cost_matrix,
         )
         output_dim = len(label_map)
-        criterion = torch.nn.CrossEntropyLoss()
+        
+        if is_lnh and train_kwargs.class_balanced:
+            class_weight_dict = assign_class_weights(train_df)
+            mapped_class_weights = {one_hot_: class_weight_dict[label] for label, one_hot_ in label_map.items()}
+
+            weight_vector = torch.tensor(
+                [mapped_class_weights[k] for k in sorted(mapped_class_weights.keys())],
+                dtype=torch.float
+            ).to(device)
+            criterion = torch.nn.CrossEntropyLoss(weight=weight_vector)
+        else:
+            criterion = torch.nn.CrossEntropyLoss()
+
         if train_kwargs.classifier_type != "one_hot":
             mode = train_kwargs.classifier_type.split("_")[2]
             cost_matrix = get_cost_matrix(

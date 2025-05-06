@@ -15,6 +15,8 @@ def assign_class_weights(df):
             class_weights[cls] = total_samples / (n_classes * count)
         else:
             class_weights[cls] = 0.0
+    print(freq_dist)
+    print(class_weights)
     return class_weights
 
 def compute_applied_weights(
@@ -85,9 +87,6 @@ class CostWeightedCELossWithLogits(nn.Module):
 
         return loss
 
-if __name__ == __main__:
-    pass
-        
 class DistanceLossWithLogits(CostWeightedCELossWithLogits):
     def __init__(self, cost_matrix, eps=1e-8):
         super(DistanceLossWithLogits, self).__init__(cost_matrix, eps)
