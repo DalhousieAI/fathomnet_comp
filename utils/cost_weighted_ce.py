@@ -3,7 +3,6 @@ import torch.nn as nn
 
 def assign_class_weights(df):
     freq_dist = df["label"].value_counts().sort_index()
-    
     total_samples = freq_dist.sum()
     n_classes = len(freq_dist)
     class_weights = {}
