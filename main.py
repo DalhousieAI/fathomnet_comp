@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from utils.cost_weighted_ce import CostWeightedCELossWithLogits, CalcDistance
+from utils.cost_weighted_ce import CostWeightedCELossWithLogits, CalcDistance, assign_class_weights
 from utils.dataset import FathomNetDataset
 from utils.utils import build_model, df_split, get_augs, \
     map_label_to_idx, set_seed, collect_hierarchy, \
@@ -34,16 +34,20 @@ def main():
     set_seed(train_kwargs.seed, cudnn_deterministic=train_kwargs.cudnn_deterministic)
 
     is_hml = train_kwargs.classifier_type == "hml"
+    is_lnh = train_kwargs.classifier_type == "lnh"
 
-    df = pd.read_csv("./data/train/annotations.csv")
-    test_df = pd.read_csv("./data/test/annotations.csv")
+    if is_lnh:
+        df = pd.read_csv("cfg/hierarchy/leafnode_labels_train.csv")
+    else:
+        df = pd.read_csv("../data/train/annotations.csv")
+    test_df = pd.read_csv("../data/test/annotations.csv")
 
     df, label_map = map_label_to_idx(df, "label")
 
     label_col = "label_idx"
     if is_hml:
         label_map = json.load(
-            open("./data/train/index_to_taxon.json", "r")
+            open("../data/train/index_to_taxon.json", "r")
         )
         assert train_kwargs.hierarchy_dict_path is not None, (
             "hierarchy_dict_path must be specified for HML classifier."
@@ -61,7 +65,8 @@ def main():
     )
 
     train_augs, val_augs = get_augs(
-        colour_jitter=False, 
+        colour_jitter=train_kwargs.use_colour_jitter,
+        input_size=train_kwargs.input_size, 
         use_benthicnet=train_kwargs.use_benthicnet_normalization
         )
 
@@ -127,7 +132,19 @@ def main():
             cost_matrix=metric_cost_matrix,
         )
         output_dim = len(label_map)
-        criterion = torch.nn.CrossEntropyLoss()
+        
+        if is_lnh and train_kwargs.class_balanced:
+            class_weight_dict = assign_class_weights(train_df)
+            mapped_class_weights = {one_hot_: class_weight_dict[label] for label, one_hot_ in label_map.items()}
+
+            weight_vector = torch.tensor(
+                [mapped_class_weights[k] for k in sorted(mapped_class_weights.keys())],
+                dtype=torch.float
+            ).to(device)
+            criterion = torch.nn.CrossEntropyLoss(weight=weight_vector)
+        else:
+            criterion = torch.nn.CrossEntropyLoss()
+
         if train_kwargs.classifier_type != "one_hot":
             mode = train_kwargs.classifier_type.split("_")[2]
             cost_matrix = get_cost_matrix(

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --time=03-00:00:00          # max walltime, hh:mm:ss
+#SBATCH --time=01-2:00:00          # max walltime, hh:mm:ss
 #SBATCH --nodes 1                   # Number of nodes to request
 #SBATCH --gpus-per-node=a100:1      # Number of GPUs per node to request
 #SBATCH --tasks-per-node=1          # Number of processes to spawn per node
@@ -7,11 +7,16 @@
 #SBATCH --mem=64G                   # Memory per node
 #SBATCH --output=./logs/%x_%A-%a_%n-%t.out
 #SBATCH --job-name=fathomnet_comp
-#SBATCH --account=          	    # Use default account
+#SBATCH --account=rrg-whidden          	    # Use default account
 
 # Set and activate the virtual environment
-ENVNAME=gen_env
-source ~/venvs/gen_env/bin/activate
+module load StdEnv/2023
+module load gcc/12.3
+module load cuda/12.2
+module load python/3.11.5
+module load scipy-stack/2024a
+source ~/fathomnet_comp_env/bin/activate
+#source ~/venvs/gen_env/bin/activate
 
 # Multi-threading
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
