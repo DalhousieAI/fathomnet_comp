@@ -1,14 +1,7 @@
 #!/bin/bash
 
 cfg_paths=(
-    "cfg/training/efficientnet_v2_m_s42_e75_isz64.json"
-    "cfg/training/efficientnet_v2_m_s42_e150_isz64.json"
-    "cfg/training/efficientnet_v2_m_s42_e75_isz128.json"
-    "cfg/training/efficientnet_v2_m_s42_e150_isz128.json"
-    "cfg/training/efficientnet_v2_l_s42_e75_isz64.json"
-    "cfg/training/efficientnet_v2_l_s42_e150_isz64.json"
-    "cfg/training/efficientnet_v2_l_s42_e75_isz128.json"
-    "cfg/training/efficientnet_v2_l_s42_e150_isz128.json"
+    "cfg/training/vit_l_rankPyl.json"
 )
 
 # Loop over each cfg path

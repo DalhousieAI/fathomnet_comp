@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 
 from utils.dataset import FathomNetDataset
+from utils.cost_weighted_ce import assign_class_weights
 from utils.utils import build_model, df_split, get_augs, \
     map_label_to_idx, set_seed, collect_hierarchy, \
     read_json, train, convert_indices_to_label
@@ -33,10 +34,11 @@ def main():
 
     is_hml = train_kwargs.classifier_type == "hml"
 
-    df = pd.read_csv("../data/train/annotations.csv")
     test_df = pd.read_csv("../data/test/annotations.csv")
 
-    df, label_map = map_label_to_idx(df, "label")
+    # df = pd.read_csv("../data/train/annotations.csv")
+    df = pd.read_csv("cfg/hierarchy/hierarchy_labels_train_noNone.csv")
+    df, label_map = map_label_to_idx(df, train_kwargs.rank)
 
     label_col = "label_idx"
     if is_hml:
@@ -120,7 +122,17 @@ def main():
 
     if train_kwargs.classifier_type == "one_hot":
         output_dim = len(label_map)
-        criterion = torch.nn.CrossEntropyLoss()
+        if train_kwargs.class_balanced:
+            class_weight_dict = assign_class_weights(train_df, train_kwargs.rank)
+            mapped_class_weights = {one_hot_: class_weight_dict[label] for label, one_hot_ in label_map.items()}
+
+            weight_vector = torch.tensor(
+                [mapped_class_weights[k] for k in sorted(mapped_class_weights.keys())],
+                dtype=torch.float
+            ).to(device)
+            criterion = torch.nn.CrossEntropyLoss(weight=weight_vector)
+        else:
+            criterion = torch.nn.CrossEntropyLoss()
     elif train_kwargs.classifier_type == "hml":
         assert train_kwargs.descendent_matrix_path is not None, (
             "descendent_matrix_path must be specified for HML classifier."

@@ -1,6 +1,23 @@
 import torch
 import torch.nn as nn
 
+def assign_class_weights(df, rank):
+    freq_dist = df[rank].value_counts().sort_index()
+    total_samples = freq_dist.sum()
+    n_classes = len(freq_dist)
+    class_weights = {}
+    
+    # Compute weight for each class
+    for cls, count in freq_dist.items():
+        # Avoid division by zero (if a class count is 0, though it should not occur in this context)
+        if count > 0:
+            class_weights[cls] = total_samples / (n_classes * count)
+        else:
+            class_weights[cls] = 0.0
+    print(freq_dist)
+    print(class_weights)
+    return class_weights
+
 class CostWeightedCELossWithLogits(nn.Module):
     def __init__(
             self, 
@@ -55,9 +72,4 @@ class CostWeightedCELossWithLogits(nn.Module):
         loss = torch.mean(loss)
 
         return loss
-
-if __name__ == __main__:
-    pass
         
-
-

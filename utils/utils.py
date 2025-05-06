@@ -588,6 +588,7 @@ def train(
             enc_path = "None"
         model_path = f"./models/{train_kwargs.enc_arch}_pre-" + \
             f"{enc_path}_cls-{train_kwargs.classifier_type}_" + \
+            f"rank-{train_kwargs.rank}_"+ \
             f"seed-{train_kwargs.seed}_e-{train_kwargs.max_epochs}_aug-{train_kwargs.use_colour_jitter}_isz-{train_kwargs.input_size}"
 
         if not os.path.exists(model_path):
