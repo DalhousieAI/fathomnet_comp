@@ -15,7 +15,6 @@ def get_constr_out(x, R):
     final_out, _ = torch.max(R_batch * c_out.double(), dim=2)
     return final_out
 
-
 class FathomNetModel(nn.Module):
     def __init__(
             self,
@@ -84,3 +83,44 @@ class ConstrainedFFNNModel(nn.Module):
                     x = self.f(self.fc[i](x))
                     x = self.drop(x)
         return x
+
+class FusedClassifier(nn.Module):
+    def __init__(self, in_dim: int, num_classes: int):
+        super().__init__()
+        self.classifier = nn.Sequential(
+            nn.Linear(in_dim, in_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(in_dim, in_dim // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(in_dim // 2, num_classes),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.classifier(x)
+
+# ───────────────────────────────────────────────────────────────
+#   Attention‑fusion module  (ROI query  ←  context key/value)
+# ───────────────────────────────────────────────────────────────
+class AttentionFusion(nn.Module):
+    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(
+            dim, num_heads, dropout=dropout, batch_first=True
+        )
+        self.ln = nn.LayerNorm(dim)
+
+    def forward(self, roi_vec: torch.Tensor, ctx_vec: torch.Tensor) -> torch.Tensor:
+        """
+        roi_vec, ctx_vec : (B, D)
+        returns fused     : (B, D)
+        """
+        # Treat ROI as a single‑token *query*, context as single‑token key/value
+        q = roi_vec.unsqueeze(1)  # (B, 1, D)
+        k = ctx_vec.unsqueeze(1)
+        v = ctx_vec.unsqueeze(1)
+
+        attn_out, _ = self.attn(q, k, v)      # (B, 1, D)
+        fused = self.ln(attn_out.squeeze(1) + roi_vec)  # residual
+        return fused
