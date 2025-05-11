@@ -1,9 +1,9 @@
 {
-    "enc_arch": "vit_l_16",
+    "enc_arch": "resnet50",
     "enc_path": null,
     "classifier_type": "one_hot",
-    "rank": "Phylum",
-    "class_balanced": true,
+    "rank": "Species",
+    "class_balanced": false,
     "seed": 42,
     "input_size": 224,
     "cudnn_deterministic": false,

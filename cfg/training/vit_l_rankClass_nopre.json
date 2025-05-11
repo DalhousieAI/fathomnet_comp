@@ -2,7 +2,7 @@
     "enc_arch": "vit_l_16",
     "enc_path": null,
     "classifier_type": "one_hot",
-    "rank": "Phylum",
+    "rank": "Class",
     "class_balanced": true,
     "seed": 42,
     "input_size": 224,

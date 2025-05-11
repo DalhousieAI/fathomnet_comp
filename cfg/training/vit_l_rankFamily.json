@@ -1,8 +1,8 @@
 {
     "enc_arch": "vit_l_16",
-    "enc_path": null,
+    "enc_path": "./models/vit_l_16_pre-None_cls-one_hot_rank-Phylum_seed-42_e-100_aug-True_isz-224/model.ckpt",
     "classifier_type": "one_hot",
-    "rank": "Phylum",
+    "rank": "Family",
     "class_balanced": true,
     "seed": 42,
     "input_size": 224,
@@ -17,11 +17,11 @@
     "min_lr": 0.000001,
     "weight_decay": 0.0001,
     "scheduler_name": "warmup_cosine",
-    "max_epochs": 100,
+    "max_epochs": 20,
     "warmup_epochs": 10,
     "save_model": true,
     "save_curves": true,
     "use_colour_jitter": true,
     "use_benthicnet_normalization": false,
-    "custom_trained": false
+    "custom_trained": true
 }
