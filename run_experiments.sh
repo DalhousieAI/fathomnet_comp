@@ -1,7 +1,11 @@
 #!/bin/bash
 
 cfg_paths=(
-    "cfg/training/vit_l_rankPyl.json"
+    "cfg/training/vit_l_rankClass.json"
+    "cfg/training/vit_l_rankOrder.json"
+    "cfg/training/vit_l_rankFamily.json"
+    "cfg/training/vit_l_rankGenus.json"
+    "cfg/training/vit_l_rankSpecies.json"
 )
 
 # Loop over each cfg path

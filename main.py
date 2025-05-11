@@ -152,6 +152,7 @@ def main():
         classifier_type=train_kwargs.classifier_type,
         requires_grad=train_kwargs.fine_tune,
         output_dim=output_dim,
+        custom_trained=train_kwargs.custom_trained,
     )
 
     model = model.to(device)
