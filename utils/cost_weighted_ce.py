@@ -18,6 +18,25 @@ def assign_class_weights(df, rank):
     print(class_weights)
     return class_weights
 
+def compute_applied_weights(
+          cost_matrix, 
+          inputs,
+          targets
+          ):
+    assert inputs.shape[1] == cost_matrix.shape[0], \
+        "Number of classes in inputs must match cost matrix."
+    
+    # Expand the cost matrix to match the batch size
+    batch_size = inputs.shape[0]
+
+    cost_matrix_expanded = cost_matrix.unsqueeze(0).expand(batch_size, -1, -1)
+    batch_indices = torch.arange(batch_size, device=targets.device)
+
+    # Compute weights to be applied
+    applied_weights = cost_matrix_expanded[batch_indices, targets]
+
+    return batch_indices, applied_weights
+
 class CostWeightedCELossWithLogits(nn.Module):
     def __init__(
             self, 
@@ -33,17 +52,11 @@ class CostWeightedCELossWithLogits(nn.Module):
             "Cost matrix must be square."
 
     def forward(self, inputs, targets):
-        assert inputs.shape[1] == self.cost_matrix.shape[0], \
-            "Number of classes in inputs must match cost matrix."
-        
-        # Expand the cost matrix to match the batch size
-        batch_size = inputs.shape[0]
-
-        cost_matrix_expanded = self.cost_matrix.unsqueeze(0).expand(batch_size, -1, -1)
-        batch_indices = torch.arange(batch_size, device=targets.device)
-
-        # Compute weights to be applied
-        applied_weights = cost_matrix_expanded[batch_indices, targets]
+        batch_indices, applied_weights = compute_applied_weights(
+            self.cost_matrix, 
+            inputs, 
+            targets
+            )
 
         inputs_probs = self.softmax(inputs)
         inv_probs = 1 - inputs_probs
@@ -72,4 +85,54 @@ class CostWeightedCELossWithLogits(nn.Module):
         loss = torch.mean(loss)
 
         return loss
+        
+class DistanceLossWithLogits(CostWeightedCELossWithLogits):
+    def __init__(self, cost_matrix, eps=1e-8):
+        super(DistanceLossWithLogits, self).__init__(cost_matrix, eps)
+
+    def forward(self, inputs, targets):
+        _, applied_weights = compute_applied_weights(
+            self.cost_matrix, 
+            inputs, 
+            targets
+            )
+         
+        inputs_probs = self.softmax(inputs)
+
+        loss = applied_weights * inputs_probs
+        loss = torch.sum(loss, dim=1)
+        loss = torch.mean(loss)
+        return loss
+    
+class ConfidenceLossWithLogits(nn.Module):
+    def __init__(self, gamma=2, eps=1e-8):
+        super(ConfidenceLossWithLogits, self).__init__()
+        self.gamma = gamma
+        self.eps = eps
+        self.ce_loss = nn.CrossEntropyLoss(reduction='none')
+
+    def forward(self, inputs, targets, confidence):
+        ce_loss = self.ce_loss(inputs, targets)
+        scaled_loss = (1-confidence) ** self.gamma * ce_loss
+        loss = torch.mean(scaled_loss)
+        return loss
+
+class CalcDistance():
+    def __init__(self, cost_matrix):
+        self.cost_matrix = cost_matrix
+
+    def __call__(self, predictions, targets):
+        batch_size = predictions.shape[0]
+
+        cost_matrix_expanded = self.cost_matrix.unsqueeze(0).expand(batch_size, -1, -1)
+        batch_indices = torch.arange(batch_size, device=targets.device)
+
+        selected_cost_rows = cost_matrix_expanded[batch_indices, targets]
+
+        selected_costs = selected_cost_rows[batch_indices, predictions].float()
+
+        selected_cost = selected_costs.mean()
+
+        return selected_cost.cpu().item()
+
         
