@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 import torch
 
-from utils.cost_weighted_ce import CostWeightedCELossWithLogits, CalcDistance
+from utils.cost_weighted_ce import CostWeightedCELossWithLogits, \
+    CalcDistance, ConfidenceLossWithLogits
 from utils.dataset import FathomNetDataset
 from utils.utils import build_model, df_split, get_augs, \
     map_label_to_idx, set_seed, collect_hierarchy, \
@@ -61,7 +62,8 @@ def main():
     )
 
     train_augs, val_augs = get_augs(
-        colour_jitter=False, 
+        colour_jitter=train_kwargs.colour_jitter,
+        input_size=train_kwargs.input_size,
         use_benthicnet=train_kwargs.use_benthicnet_normalization
         )
 
@@ -130,12 +132,15 @@ def main():
         criterion = torch.nn.CrossEntropyLoss()
         if train_kwargs.classifier_type != "one_hot":
             mode = train_kwargs.classifier_type.split("_")[2]
-            cost_matrix = get_cost_matrix(
-                mode=mode
-            ).to(device)
-            criterion = CostWeightedCELossWithLogits(
-                cost_matrix=cost_matrix,
-            )
+            if mode == "conf":
+                criterion = ConfidenceLossWithLogits()
+            else:
+                cost_matrix = get_cost_matrix(
+                    mode=mode
+                ).to(device)
+                criterion = CostWeightedCELossWithLogits(
+                    cost_matrix=cost_matrix,
+                )
     elif is_hml:
         assert train_kwargs.descendent_matrix_path is not None, (
             "descendent_matrix_path must be specified for HML classifier."

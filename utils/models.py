@@ -19,28 +19,57 @@ class FathomNetModel(nn.Module):
     def __init__(
             self,
             encoder,
-            classifiers,
+            classifier,
     ):
         super(FathomNetModel, self).__init__()
         self.encoder = encoder
-        self.classifiers = classifiers
+        self.classifier = classifier
 
     def forward(self, x):
-        outs = []
         x = self.encoder(x)
-        for classifier in self.classifiers:
-            out = classifier(x)
-            outs.append(out)
+        outs = self.classifier(x)
         return outs
     
 class OneHotClassifier(nn.Module):
     def __init__(self, in_features, num_classes):
         super(OneHotClassifier, self).__init__()
-        self.fc = nn.Linear(in_features, num_classes)
+        self.fc1 = nn.Linear(in_features, in_features)
+        self.fc2 = nn.Linear(in_features, num_classes)
 
     def forward(self, x):
-        x = self.fc(x)
+        x = self.fc1(x)
+        x = torch.relu(x)
+        x = self.fc2(x)
         return x
+    
+class MultiHeadClassifier(nn.Module):
+    def __init__(
+            self, 
+            classifier_type, 
+            num_classifiers, 
+            features_dim, 
+            output_dim
+            ):
+        super().__init__()
+
+        self.classifiers = nn.ModuleList()  # Use ModuleList for proper parameter registration
+        for _ in range(num_classifiers):
+            if "one_hot" in classifier_type:
+                classifier = OneHotClassifier(features_dim, output_dim)
+            elif classifier_type == "hml":
+                classifier = ConstrainedFFNNModel(
+                    input_dim=features_dim,
+                    hidden_dim=[features_dim],
+                    output_dim=output_dim,
+                    dropout=0.7,
+                )
+            else:
+                raise ValueError(f"Unknown classifier type: {classifier_type}")
+            
+            self.classifiers.append(classifier)
+    
+    def forward(self, x):
+        return torch.stack([classifier(x) for classifier in self.classifiers])
     
 class ConstrainedFFNNModel(nn.Module):
     """C-HMCNN(h) model - during training it returns the not-constrained output that is then passed to MCLoss"""

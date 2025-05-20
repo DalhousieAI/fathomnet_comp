@@ -86,6 +86,19 @@ class DistanceLossWithLogits(CostWeightedCELossWithLogits):
         loss = torch.sum(loss, dim=1)
         loss = torch.mean(loss)
         return loss
+    
+class ConfidenceLossWithLogits(nn.Module):
+    def __init__(self, gamma=2, eps=1e-8):
+        super(ConfidenceLossWithLogits, self).__init__()
+        self.gamma = gamma
+        self.eps = eps
+        self.ce_loss = nn.CrossEntropyLoss(reduction='none')
+
+    def forward(self, inputs, targets, confidence):
+        ce_loss = self.ce_loss(inputs, targets)
+        scaled_loss = (1-confidence) ** self.gamma * ce_loss
+        loss = torch.mean(scaled_loss)
+        return loss
 
 class CalcDistance():
     def __init__(self, cost_matrix):

@@ -3,6 +3,8 @@
     "enc_path": null,
     "classifier_type": "one_hot",
     "seed": 2048,
+    "input_size": 518,
+    "colour_jitter": true,
     "cudnn_deterministic": false,
     "batch_size": 4,
     "num_workers": 1,
@@ -19,5 +21,6 @@
     "save_model": true,
     "save_curves": true,
     "use_benthicnet_normalization": false,
-    "custom_trained": false
+    "custom_trained": false,
+    "num_classifiers": 100
 }
