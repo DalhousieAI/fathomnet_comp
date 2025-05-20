@@ -37,7 +37,8 @@ def main():
     test_df = pd.read_csv("../data/test/annotations.csv")
 
     # df = pd.read_csv("../data/train/annotations.csv")
-    df = pd.read_csv("cfg/hierarchy/hierarchy_labels_train_noNone.csv")
+    # df = pd.read_csv("cfg/hierarchy/hierarchy_labels_train_noNone.csv")
+    df = pd.read_csv("cfg/hierarchy/hierarchy_labels_train_selftraining_test_noNone.csv")
     df, label_map = map_label_to_idx(df, train_kwargs.rank)
 
     label_col = "label_idx"
