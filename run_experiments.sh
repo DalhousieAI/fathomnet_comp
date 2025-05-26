@@ -1,11 +1,11 @@
 #!/bin/bash
 
 cfg_paths=(
-    "cfg/training/vit_h_rankClass.json"
-    "cfg/training/vit_h_rankOrder.json"
-    "cfg/training/vit_h_rankFamily.json"
-    "cfg/training/vit_h_rankGenus.json"
-    "cfg/training/vit_h_rankSpecies.json"
+    "cfg/training/wide_rn101Class.json"
+    "cfg/training/wide_rn101Order.json"
+    "cfg/training/wide_rn101Family.json"
+    "cfg/training/wide_rn101Genus.json"
+    "cfg/training/wide_rn101Species.json"
 )
 
 # Loop over each cfg path

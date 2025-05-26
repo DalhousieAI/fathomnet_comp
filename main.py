@@ -143,7 +143,7 @@ def main():
             criterion = torch.nn.CrossEntropyLoss(weight=weight_vector)
         else:
             criterion = torch.nn.CrossEntropyLoss()
-            
+
         if train_kwargs.classifier_type != "one_hot":
             mode = train_kwargs.classifier_type.split("_")[2]
             if mode == "conf":
@@ -176,7 +176,6 @@ def main():
         requires_grad=train_kwargs.fine_tune,
         custom_trained=train_kwargs.custom_trained,
         output_dim=output_dim,
-        custom_trained=train_kwargs.custom_trained,
     )
 
     model = model.to(device)
