@@ -12,7 +12,7 @@ $$
 where \( y_i \) is the ground truth label (one-hot encoded), \( \hat{y}_i \) is the predicted probability for class \( i \), and \( N \) is the total number of classes. Since \( y_i \) being negative (zero) means the term is essentially ignored in the sum, cross-entropy does not "care" about which incorrect class gets which predicted probability --- it is "error agnostic". As an example with three classes, if the ground truth is class one, and class zero gets probability \( p \), while class two gets probability \( q \), cross-entropy does not distinguish this scenario from if class zero received a prediction of \( q \), and class two \( p \) instead. However, since errors in the classes for our hierarchy are not symmetric, we need to modify the loss such that it is no longer error agnostic. We introduce a distance-weighted cross-entropy loss:
 
 $$
-\mathcal{L}_{\text{DW-CE} = -\sum_{i=1}^{N} \sum_{j=1}^n \tilde{d_{ij}} y_i \log(\hat{\delta}_j)
+\mathcal{L}_{\text{DW-CE}} = -\sum_{i=1}^{N} \sum_{j=1}^n \tilde{d_{ij}} y_i \log(\hat{\delta}_j)
 $$
 
 
