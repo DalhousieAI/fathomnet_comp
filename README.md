@@ -1,4 +1,4 @@
-[View the full documentation (PDF)](github_fathomnet_repo.pdf)
+[Please view the full documentation (PDF)](github_fathomnet_repo.pdf)
 
 
 
